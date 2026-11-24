@@ -39,6 +39,10 @@
     let analysisData = null;
     let originalUrl = null;
     let processedUrl = null;
+    let processedBlob = null;
+    let processedFileName = "XIDATA-VOICE-resultat.mp3";
+
+    const SERVER_URL = "https://xidata-voice-server.onrender.com";
 
     // Vérifier les moteurs
     if (typeof XidAudio === "undefined") {
