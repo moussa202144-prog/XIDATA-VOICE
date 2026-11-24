@@ -338,55 +338,141 @@
       }
     });
 
-    // Traitement audio
+    
+    // Traitement audio avec Auphonic
     processBtn?.addEventListener("click", async () => {
-
       try {
-
-        if (!XidAudio.getOriginalBuffer()) {
+        if (!currentFile) {
           throw new Error("Importe d'abord un fichier audio.");
         }
 
         processBtn.disabled = true;
+        processedBlob = null;
+
+        if (processStatus) {
+          processStatus.textContent = "Connexion au serveur...";
+        }
+
+        setProgress(10);
+
+        const formData = new FormData();
+        formData.append("audio", currentFile);
+
+        const uploadResponse = await fetch(
+          SERVER_URL + "/api/process",
+          {
+            method: "POST",
+            body: formData
+          }
+        );
+
+        if (!uploadResponse.ok) {
+          const errorData = await uploadResponse.json();
+          throw new Error(errorData.error || "Erreur d'envoi.");
+        }
+
+        const uploadData = await uploadResponse.json();
+
+        if (!uploadData.uuid) {
+          throw new Error("Identifiant de traitement absent.");
+        }
 
         if (processStatus) {
           processStatus.textContent =
-            "Traitement audio en cours...";
+            "Auphonic traite ton fichier audio...";
         }
 
-        setProgress(20);
+        let completed = false;
 
-        const result = await XidAudio.processAudio(
-          getSettings()
+        for (let attempt = 0; attempt < 120; attempt++) {
+          await new Promise(resolve => setTimeout(resolve, 5000));
+
+          const statusResponse = await fetch(
+            SERVER_URL + "/api/status/" +
+            encodeURIComponent(uploadData.uuid)
+          );
+
+          if (!statusResponse.ok) {
+            throw new Error("Impossible de vérifier le traitement.");
+          }
+
+          const statusData = await statusResponse.json();
+
+          setProgress(
+            Math.min(85, 15 + Math.floor(attempt * 70 / 120))
+          );
+
+          if (statusData.error) {
+            throw new Error(statusData.error);
+          }
+
+          if (statusData.ready) {
+            completed = true;
+            break;
+          }
+
+          if (processStatus) {
+            processStatus.textContent =
+              "Traitement en cours... " +
+              (statusData.statusText || "");
+          }
+        }
+
+        if (!completed) {
+          throw new Error(
+            "Le traitement prend trop de temps. Réessaie plus tard."
+          );
+        }
+
+        if (processStatus) {
+          processStatus.textContent =
+            "Récupération du fichier nettoyé...";
+        }
+
+        const resultResponse = await fetch(
+          SERVER_URL + "/api/result/" +
+          encodeURIComponent(uploadData.uuid)
         );
 
-        setProgress(100);
+        if (!resultResponse.ok) {
+          throw new Error("Impossible de récupérer le résultat.");
+        }
+
+        processedBlob = await resultResponse.blob();
+
+        const disposition =
+          resultResponse.headers.get("Content-Disposition") || "";
+
+        const filenameMatch = disposition.match(/filename="([^"]+)"/);
+
+        processedFileName = filenameMatch
+          ? filenameMatch[1]
+          : "XIDATA-VOICE-resultat.mp3";
 
         if (processedUrl) {
           URL.revokeObjectURL(processedUrl);
         }
 
-        const blob = XidAudio.exportWav(result.buffer);
-
-        processedUrl = URL.createObjectURL(blob);
+        processedUrl = URL.createObjectURL(processedBlob);
 
         if (processedPlayer) {
           processedPlayer.src = processedUrl;
           processedPlayer.hidden = false;
         }
 
+        setProgress(100);
+
         if (processStatus) {
           processStatus.textContent =
-            "Traitement terminé. Écoute le résultat.";
+            "Nettoyage terminé ! Écoute le résultat.";
         }
 
       } catch (error) {
-
         console.error(error);
 
         if (processStatus) {
           processStatus.textContent =
-            "Erreur de traitement : " + error.message;
+            "Erreur : " + error.message;
         }
 
       } finally {
@@ -394,25 +480,22 @@
       }
     });
 
-    // Exportation audio
+
+    
+    // Exportation audio traité par Auphonic
     exportAudioBtn?.addEventListener("click", () => {
-
       try {
-
-        const buffer = XidAudio.getProcessedBuffer();
-
-        if (!buffer) {
+        if (!processedBlob) {
           throw new Error(
             "Effectue d'abord le traitement audio."
           );
         }
 
-        const blob = XidAudio.exportWav(buffer);
-        const url = URL.createObjectURL(blob);
+        const url = URL.createObjectURL(processedBlob);
 
         const link = document.createElement("a");
         link.href = url;
-        link.download = "XIDATA-VOICE-resultat.wav";
+        link.download = processedFileName;
 
         document.body.appendChild(link);
         link.click();
@@ -422,16 +505,16 @@
 
         if (exportStatus) {
           exportStatus.textContent =
-            "Exportation WAV lancée.";
+            "Téléchargement du fichier traité lancé.";
         }
 
       } catch (error) {
-
         if (exportStatus) {
           exportStatus.textContent = error.message;
         }
       }
     });
+
 
     // Exportation vidéo : fonction à développer
     exportVideoBtn?.addEventListener("click", () => {
